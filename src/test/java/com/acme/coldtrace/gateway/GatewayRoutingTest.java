@@ -16,7 +16,8 @@ import org.springframework.test.context.DynamicPropertySource;
 public class GatewayRoutingTest {
   static HttpServer monitoring = stub("monitoring"),
       backend = stub("backend"),
-      alert = stub("alert");
+      alert = stub("alert"),
+      report = stub("report");
   @LocalServerPort int port;
 
   static HttpServer stub(String name) {
@@ -52,6 +53,7 @@ public class GatewayRoutingTest {
         "coldtrace.monitoring.url", () -> "http://localhost:" + monitoring.getAddress().getPort());
     r.add("coldtrace.backend.url", () -> "http://localhost:" + backend.getAddress().getPort());
     r.add("coldtrace.alert.url", () -> "http://localhost:" + alert.getAddress().getPort());
+    r.add("coldtrace.report.url", () -> "http://localhost:" + report.getAddress().getPort());
   }
 
   @AfterAll
@@ -59,6 +61,7 @@ public class GatewayRoutingTest {
     monitoring.stop(0);
     backend.stop(0);
     alert.stop(0);
+    report.stop(0);
   }
 
   String request(String path) throws Exception {
@@ -92,9 +95,35 @@ public class GatewayRoutingTest {
   }
 
   @Test
-  void onlyExtractedAlertQueriesReachAlertService() throws Exception {
+  void incidentWorkflowAndNotificationsReachAlertService() throws Exception {
     assertThat(request("/api/v1/alerts")).startsWith("alert|");
     assertThat(request("/api/v1/alerts/1")).startsWith("alert|");
-    assertThat(request("/api/v1/alerts/1/acknowledgement")).startsWith("backend|");
+    for (var path :
+        new String[] {
+          "/api/v1/alerts/1/acknowledgement",
+          "/api/v1/alerts/stream",
+          "/api/v1/incidents/1/corrective-actions",
+          "/api/v1/incidents/1/resolution",
+          "/api/v1/notifications"
+        }) assertThat(request(path)).startsWith("alert|" + path);
+    assertThat(request("/api/v1/reports/1/result")).startsWith("report|");
+  }
+
+  @Test
+  void browserPreflightAllowsBearerAndStreamCursorForConfiguredOrigin() throws Exception {
+    var response =
+        HttpClient.newHttpClient()
+            .send(
+                HttpRequest.newBuilder(
+                        URI.create("http://localhost:" + port + "/api/v1/alerts/stream"))
+                    .method("OPTIONS", HttpRequest.BodyPublishers.noBody())
+                    .header("Origin", "http://127.0.0.1:4200")
+                    .header("Access-Control-Request-Method", "GET")
+                    .header("Access-Control-Request-Headers", "authorization,last-event-id")
+                    .build(),
+                HttpResponse.BodyHandlers.ofString());
+    assertThat(response.statusCode()).isEqualTo(200);
+    assertThat(response.headers().firstValue("Access-Control-Allow-Origin"))
+        .contains("http://127.0.0.1:4200");
   }
 }
