@@ -52,7 +52,7 @@ public class GatewayRoutes {
                     .path("/api/v1/alerts/**", "/api/v1/incidents/**", "/api/v1/notifications/**")
                     .uri(alert))
         .route("reports", r -> r.order(5).path("/api/v1/reports/**").uri(report))
-        .route("brownfield", r -> r.order(100).path("/**").uri(backend))
+        .route("brownfield", r -> r.order(100).path("/**").filters(f -> f.dedupeResponseHeader("Access-Control-Allow-Origin Access-Control-Allow-Credentials", "RETAIN_FIRST")).uri(backend))
         .build();
   }
 }

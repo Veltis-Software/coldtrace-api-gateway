@@ -35,6 +35,8 @@ public class GatewayRoutingTest {
                     + "|"
                     + exchange.getRequestHeaders().getFirst("X-Correlation-Id");
             var bytes = text.getBytes(StandardCharsets.UTF_8);
+            var origin = exchange.getRequestHeaders().getFirst("Origin");
+            if (origin != null) exchange.getResponseHeaders().add("Access-Control-Allow-Origin", origin);
             exchange.sendResponseHeaders(200, bytes.length);
             try (var out = exchange.getResponseBody()) {
               out.write(bytes);
@@ -125,5 +127,12 @@ public class GatewayRoutingTest {
     assertThat(response.statusCode()).isEqualTo(200);
     assertThat(response.headers().firstValue("Access-Control-Allow-Origin"))
         .contains("http://127.0.0.1:4200");
+  }
+
+  @Test
+  void brownfieldCorsResponseContainsExactlyOneAllowedOrigin() throws Exception {
+    var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/session/context"))
+        .header("Origin", "http://127.0.0.1:4200").build(), HttpResponse.BodyHandlers.ofString());
+    assertThat(response.headers().allValues("Access-Control-Allow-Origin")).containsExactly("http://127.0.0.1:4200");
   }
 }
