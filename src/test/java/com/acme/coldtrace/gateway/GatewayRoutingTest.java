@@ -15,7 +15,11 @@ import org.springframework.test.context.DynamicPropertySource;
 @SpringBootTest(webEnvironment = SpringBootTest.WebEnvironment.RANDOM_PORT)
 public class GatewayRoutingTest {
   static HttpServer monitoring = stub("monitoring"),
-      backend = stub("backend"),
+      identity = stub("identity"),
+      asset = stub("asset"),
+      maintenance = stub("maintenance"),
+      ai = stub("ai"),
+      subscription = stub("subscription"),
       alert = stub("alert"),
       report = stub("report");
   @LocalServerPort int port;
@@ -53,7 +57,11 @@ public class GatewayRoutingTest {
   static void properties(DynamicPropertyRegistry r) {
     r.add(
         "coldtrace.monitoring.url", () -> "http://localhost:" + monitoring.getAddress().getPort());
-    r.add("coldtrace.backend.url", () -> "http://localhost:" + backend.getAddress().getPort());
+    r.add("coldtrace.identity.url", () -> "http://localhost:" + identity.getAddress().getPort());
+    r.add("coldtrace.asset.url", () -> "http://localhost:" + asset.getAddress().getPort());
+    r.add("coldtrace.maintenance.url", () -> "http://localhost:" + maintenance.getAddress().getPort());
+    r.add("coldtrace.ai.url", () -> "http://localhost:" + ai.getAddress().getPort());
+    r.add("coldtrace.subscription.url", () -> "http://localhost:" + subscription.getAddress().getPort());
     r.add("coldtrace.alert.url", () -> "http://localhost:" + alert.getAddress().getPort());
     r.add("coldtrace.report.url", () -> "http://localhost:" + report.getAddress().getPort());
   }
@@ -61,7 +69,7 @@ public class GatewayRoutingTest {
   @AfterAll
   static void stop() {
     monitoring.stop(0);
-    backend.stop(0);
+    identity.stop(0);asset.stop(0);maintenance.stop(0);ai.stop(0);subscription.stop(0);
     alert.stop(0);
     report.stop(0);
   }
@@ -71,7 +79,7 @@ public class GatewayRoutingTest {
         .send(
             HttpRequest.newBuilder(URI.create("http://localhost:" + port + path))
                 .header("Authorization", "Bearer sample")
-                .header("X-Correlation-Id", "tp1-route")
+                .header("X-Correlation-Id", "route-verification")
                 .build(),
             HttpResponse.BodyHandlers.ofString())
         .body();
@@ -82,18 +90,33 @@ public class GatewayRoutingTest {
     for (var path :
         new String[] {
           "/api/v1/telemetry/batches", "/api/v1/assets/1/state", "/api/v1/assets/states"
-        }) assertThat(request(path)).isEqualTo("monitoring|" + path + "|Bearer sample|tp1-route");
+        }) assertThat(request(path)).isEqualTo("monitoring|" + path + "|Bearer sample|route-verification");
   }
 
   @Test
-  void organizationScopedLegacyRoutesStayInBrownfield() throws Exception {
-    for (var path :
-        new String[] {
-          "/api/v1/organizations/1/assets",
-          "/api/v1/organizations/1/sensor-readings",
-          "/api/v1/session/context",
-          "/api/v1/incidents/1/resolution-plans"
-        }) assertThat(request(path)).startsWith("backend|" + path);
+  void organizationScopedRoutesReachTheirIndependentOwners() throws Exception {
+    var cases=java.util.Map.ofEntries(
+        java.util.Map.entry("/api/v1/organizations/1/assets","asset"),
+        java.util.Map.entry("/api/v1/organizations/1/sensor-readings","monitoring"),
+        java.util.Map.entry("/api/v1/session/context","identity"),
+        java.util.Map.entry("/api/v1/organization-sign-ups","identity"),
+        java.util.Map.entry("/api/v1/organizations/1/users","identity"),
+        java.util.Map.entry("/api/v1/organizations/1/maintenance-schedules","maintenance"),
+        java.util.Map.entry("/api/v1/organizations/1/technical-service-requests","maintenance"),
+        java.util.Map.entry("/api/v1/organizations/1/subscription","subscription"),
+        java.util.Map.entry("/api/v1/organizations/1/billing/checkout-sessions","subscription"),
+        java.util.Map.entry("/api/v1/organizations/1/dashboard/ai-interpretation","ai"),
+        java.util.Map.entry("/api/v1/organizations/1/incidents/2/ai-resolution-plans/3/approvals","alert"),
+        java.util.Map.entry("/api/v1/organizations/1/reports/2/ai-summary","report"));
+    for(var entry:cases.entrySet())assertThat(request(entry.getKey())).startsWith(entry.getValue()+"|"+entry.getKey());
+  }
+
+  @Test
+  void internalAndUnknownPathsHaveNoCatchAllDestination() throws Exception {
+    for(var path:java.util.List.of("/internal/ai/v1/generations/incident-plan","/not-a-public-api")) {
+      var response=HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://localhost:"+port+path)).build(),HttpResponse.BodyHandlers.ofString());
+      assertThat(response.statusCode()).isEqualTo(404);
+    }
   }
 
   @Test
@@ -130,7 +153,7 @@ public class GatewayRoutingTest {
   }
 
   @Test
-  void brownfieldCorsResponseContainsExactlyOneAllowedOrigin() throws Exception {
+  void ownerCorsResponseContainsExactlyOneAllowedOrigin() throws Exception {
     var response = HttpClient.newHttpClient().send(HttpRequest.newBuilder(URI.create("http://localhost:" + port + "/api/v1/session/context"))
         .header("Origin", "http://127.0.0.1:4200").build(), HttpResponse.BodyHandlers.ofString());
     assertThat(response.headers().allValues("Access-Control-Allow-Origin")).containsExactly("http://127.0.0.1:4200");
