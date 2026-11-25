@@ -12,7 +12,8 @@ public class GatewayRoutes {
       RouteLocatorBuilder builder,
       @Value("${coldtrace.monitoring.url}") String monitoring,
       @Value("${coldtrace.backend.url}") String backend,
-      @Value("${coldtrace.alert.url}") String alert) {
+      @Value("${coldtrace.alert.url}") String alert,
+      @Value("${coldtrace.report.url:http://localhost:8085}") String report) {
     return builder
         .routes()
         .route(
@@ -31,8 +32,27 @@ public class GatewayRoutes {
                         "/monitoring/swagger-ui.html")
                     .filters(f -> f.stripPrefix(1))
                     .uri(monitoring))
-        .route("alert", r -> r.order(2).path("/api/v1/alerts", "/api/v1/alerts/{id}").uri(alert))
-        .route("brownfield", r -> r.order(100).path("/**").uri(backend))
+        .route(
+            "alert-stream",
+            r ->
+                r.order(2)
+                    .path("/api/v1/alerts/stream")
+                    .metadata("response-timeout", -1)
+                    .uri(alert))
+        .route(
+            "ai-brownfield",
+            r ->
+                r.order(3)
+                    .path("/api/v1/incidents/*/resolution-plans", "/api/v1/resolution-plans/**")
+                    .uri(backend))
+        .route(
+            "alert",
+            r ->
+                r.order(4)
+                    .path("/api/v1/alerts/**", "/api/v1/incidents/**", "/api/v1/notifications/**")
+                    .uri(alert))
+        .route("reports", r -> r.order(5).path("/api/v1/reports/**").uri(report))
+        .route("brownfield", r -> r.order(100).path("/**").filters(f -> f.dedupeResponseHeader("Access-Control-Allow-Origin Access-Control-Allow-Credentials", "RETAIN_FIRST")).uri(backend))
         .build();
   }
 }
